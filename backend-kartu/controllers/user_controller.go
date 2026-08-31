@@ -23,8 +23,10 @@ type ProfileInput struct {
 
 type SettingsInput struct {
 	TwoFactorEnabled bool   `json:"two_factor_enabled"`
+	TwoFactorPin     string `json:"two_factor_pin"`
 	BiometricEnabled bool   `json:"biometric_enabled"`
 	NFCEnabled       bool   `json:"nfc_enabled"`
+	NfcCardId        string `json:"nfc_card_id"`
 	FaceData         string `json:"face_data"`
 }
 
@@ -167,13 +169,24 @@ func (ctrl *UserController) UpdateSettings(c *gin.Context) {
 	}
 
 	user.TwoFactorEnabled = input.TwoFactorEnabled
-	user.BiometricEnabled = input.BiometricEnabled
-	user.NFCEnabled = input.NFCEnabled
+	if input.TwoFactorEnabled {
+		user.TwoFactorPin = input.TwoFactorPin
+	} else {
+		user.TwoFactorPin = ""
+	}
 
+	user.BiometricEnabled = input.BiometricEnabled
 	if input.FaceData != "" {
 		user.FaceData = input.FaceData
 	} else if !input.BiometricEnabled {
 		user.FaceData = ""
+	}
+
+	user.NFCEnabled = input.NFCEnabled
+	if input.NFCEnabled {
+		user.NfcCardId = input.NfcCardId
+	} else {
+		user.NfcCardId = ""
 	}
 
 	if err := ctrl.DB.Save(&user).Error; err != nil {

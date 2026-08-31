@@ -144,6 +144,21 @@ func (ctrl *ChatController) GetConversations(c *gin.Context) {
 				Count(&count)
 			conversations[i].UnreadCount = count
 		}
+
+		userIDInt, _ := strconv.ParseUint(userID, 10, 32)
+		ctrl.ClientsLock.RLock()
+		for i, conv := range conversations {
+			if conv.Type == "direct" {
+				for _, p := range conv.Participants {
+					if p.UserID != uint(userIDInt) {
+						_, exists := ctrl.Clients[p.UserID]
+						conversations[i].IsOnline = exists
+						break
+					}
+				}
+			}
+		}
+		ctrl.ClientsLock.RUnlock()
 	}
 
 	c.JSON(http.StatusOK, conversations)

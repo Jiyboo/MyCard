@@ -313,9 +313,16 @@ const LiveChat = ({ role }) => {
 
   const executeScreenShare = async (withAudio) => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        alert("Screen sharing tidak didukung di perangkat ini.");
+        return;
+      }
+      
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      
       const stream = await navigator.mediaDevices.getDisplayMedia({ 
         video: true,
-        audio: withAudio 
+        audio: isTouch ? false : withAudio 
       });
       
       screenStreamRef.current = stream;
@@ -336,7 +343,7 @@ const LiveChat = ({ role }) => {
            pc.addTrack(screenVideoTrack, stream);
         }
 
-        if (withAudio && stream.getAudioTracks().length > 0) {
+        if (!isTouch && withAudio && stream.getAudioTracks().length > 0) {
            const screenAudioTrack = stream.getAudioTracks()[0];
            const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
            
@@ -348,7 +355,7 @@ const LiveChat = ({ role }) => {
         }
       });
 
-      const newState = { ...mediaState, isScreenSharing: true, isScreenAudioEnabled: withAudio };
+      const newState = { ...mediaState, isScreenSharing: true, isScreenAudioEnabled: !isTouch && withAudio };
       setMediaState(newState);
       sendMediaStateUpdate(newState);
       setStreamUpdateTrigger(prev => prev + 1);
@@ -391,10 +398,18 @@ const LiveChat = ({ role }) => {
     if (mediaState.isScreenSharing) {
       stopScreenShare();
     } else {
-      if (mediaState.isVideoOff) {
-        setShowScreenShareConfirm(true);
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        alert("Screen sharing tidak didukung di perangkat ini.");
+        return;
+      }
+      if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+        executeScreenShare(false);
       } else {
-        setShowScreenAudioConfirm(true);
+        if (mediaState.isVideoOff) {
+          setShowScreenShareConfirm(true);
+        } else {
+          setShowScreenAudioConfirm(true);
+        }
       }
     }
   };
@@ -687,7 +702,7 @@ const LiveChat = ({ role }) => {
             lastMessage: lastMessageDisplay,
             time: timeStr,
             unread: c.unread_count || 0,
-            isOnline: c.id % 2 === 0,
+            isOnline: c.is_online || false, 
             members: c.participants?.length || 0,
             participants: c.participants || []
           };

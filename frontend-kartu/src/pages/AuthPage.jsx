@@ -3,9 +3,21 @@ import * as faceapi from 'face-api.js';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL;
 
+const CAPTCHA_IMAGES = [
+  'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=280&h=140&fit=crop',
+  'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=280&h=140&fit=crop',
+  'https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=280&h=140&fit=crop',
+  'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=280&h=140&fit=crop',
+  'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?w=280&h=140&fit=crop',
+  'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=280&h=140&fit=crop',
+  'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=280&h=140&fit=crop',
+  'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=280&h=140&fit=crop'
+];
+
 const AuthPage = ({ onNavigate }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [loginStep, setLoginStep] = useState(1);
+  const [showMethodSelection, setShowMethodSelection] = useState(false);
   const [showPasswordField, setShowPasswordField] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   
@@ -13,7 +25,9 @@ const AuthPage = ({ onNavigate }) => {
     nama_lengkap: '',
     username: '',
     email: '',
-    password: ''
+    password: '',
+    pin: '',
+    nfc_card_id: ''
   });
   
   const [isLoading, setIsLoading] = useState(false);
@@ -28,7 +42,18 @@ const AuthPage = ({ onNavigate }) => {
   const [bgUrl, setBgUrl] = useState('');
 
   const [hasFaceId, setHasFaceId] = useState(false);
+  const [has2FA, setHas2FA] = useState(false);
+  const [hasNFC, setHasNFC] = useState(false);
+  
   const [showFaceModal, setShowFaceModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [showNfcModal, setShowNfcModal] = useState(false);
+  const [nfcStatusText, setNfcStatusText] = useState('');
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  const [showNfcId, setShowNfcId] = useState(false);
+  
   const [scanPhase, setScanPhase] = useState('idle');
   const [scanProgress, setScanProgress] = useState(0);
   const [cameras, setCameras] = useState([]);
@@ -37,6 +62,7 @@ const AuthPage = ({ onNavigate }) => {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const detectionInterval = useRef(null);
+  const nfcInputRef = useRef(null);
 
   useEffect(() => {
     setIsVisible(true);
@@ -47,14 +73,12 @@ const AuthPage = ({ onNavigate }) => {
           faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
           faceapi.nets.faceRecognitionNet.loadFromUri('/models')
         ]);
-        
         const dummyCanvas = document.createElement('canvas');
         dummyCanvas.width = 200;
         dummyCanvas.height = 200;
         try {
           await faceapi.detectSingleFace(dummyCanvas).withFaceLandmarks().withFaceDescriptor();
         } catch (e) {}
-
         setModelsLoaded(true);
       } catch (err) {
         setMessage({ type: 'error', text: 'Gagal memuat model Face API' });
@@ -63,6 +87,12 @@ const AuthPage = ({ onNavigate }) => {
     loadModels();
     return () => stopCamera();
   }, []);
+
+  useEffect(() => {
+    if (showNfcModal && nfcInputRef.current) {
+      nfcInputRef.current.focus();
+    }
+  }, [showNfcModal]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -79,8 +109,16 @@ const AuthPage = ({ onNavigate }) => {
       
       if (res.ok) {
         setHasFaceId(data.biometric_enabled);
-        setShowPasswordField(!data.biometric_enabled);
-        setLoginStep(2);
+        setHas2FA(data.two_factor_enabled);
+        setHasNFC(data.nfc_enabled);
+        
+        if (data.biometric_enabled || data.nfc_enabled) {
+          setShowMethodSelection(true);
+          setLoginStep(2);
+        } else {
+          setShowPasswordField(true);
+          setLoginStep(2);
+        }
       } else {
         setMessage({ type: 'error', text: data.error || 'Username tidak ditemukan' });
       }
@@ -115,7 +153,6 @@ const AuthPage = ({ onNavigate }) => {
 
   const startFaceLogin = async (deviceId = null) => {
     if (!modelsLoaded) return;
-
     stopCamera();
     setShowFaceModal(true);
     setScanPhase('requesting');
@@ -127,7 +164,6 @@ const AuthPage = ({ onNavigate }) => {
           ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 640 } } 
           : { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } }
       };
-
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       if (videoRef.current) {
@@ -148,15 +184,12 @@ const AuthPage = ({ onNavigate }) => {
 
   const startFaceDetection = () => {
     let progress = 0;
-    
     detectionInterval.current = setInterval(async () => {
       if (videoRef.current && videoRef.current.readyState === 4 && scanPhase !== 'processing') {
         const detection = await faceapi.detectSingleFace(videoRef.current).withFaceLandmarks().withFaceDescriptor();
-        
         if (detection) {
           progress += 20;
           setScanProgress(progress);
-          
           if (progress >= 100) {
             clearInterval(detectionInterval.current);
             setScanPhase('processing');
@@ -168,16 +201,16 @@ const AuthPage = ({ onNavigate }) => {
     }, 500);
   };
 
-  const cancelFaceLogin = () => {
-    stopCamera();
-    setShowFaceModal(false);
-    setScanPhase('idle');
-  };
-
   const handleCameraChange = (e) => {
     const newDeviceId = e.target.value;
     setSelectedCamera(newDeviceId);
     startFaceLogin(newDeviceId);
+  };
+
+  const cancelFaceLogin = () => {
+    stopCamera();
+    setShowFaceModal(false);
+    setScanPhase('idle');
   };
 
   const handleInitialSubmit = (e) => {
@@ -186,10 +219,7 @@ const AuthPage = ({ onNavigate }) => {
       if (loginStep === 1) {
         handleNextStep();
       } else if (loginStep === 2 && showPasswordField) {
-        setCaptchaTarget(Math.floor(Math.random() * 120) + 80);
-        setBgUrl(`https://picsum.photos/280/140?random=${Math.random()}`);
-        setSliderValue(0);
-        setCaptchaStatus('idle');
+        refreshCaptcha();
         setShowCaptcha(true);
       }
     } else {
@@ -197,15 +227,27 @@ const AuthPage = ({ onNavigate }) => {
     }
   };
 
+  const refreshCaptcha = () => {
+    setCaptchaTarget(Math.floor(Math.random() * 120) + 80);
+    const randomImage = CAPTCHA_IMAGES[Math.floor(Math.random() * CAPTCHA_IMAGES.length)];
+    setBgUrl(randomImage);
+    setSliderValue(0);
+    setCaptchaStatus('idle');
+  };
+
   const verifyCaptcha = () => {
     setIsVerifying(true);
     setTimeout(() => {
       setIsVerifying(false);
-      if (Math.abs(sliderValue - captchaTarget) < 5) {
+      if (Math.abs(Number(sliderValue) - Number(captchaTarget)) < 5) {
         setCaptchaStatus('success');
         setTimeout(() => {
           setShowCaptcha(false);
-          executeSubmit('password');
+          if (has2FA) {
+            setShowPinModal(true);
+          } else {
+            executeSubmit('password');
+          }
         }, 800);
       } else {
         setCaptchaStatus('error');
@@ -215,16 +257,38 @@ const AuthPage = ({ onNavigate }) => {
     }, 600);
   };
 
-  const executeSubmit = async (method, faceDataStr = '') => {
-    if (method !== 'face_id') {
-      setIsLoading(true);
+  const submitPin = () => {
+    if (formData.pin.length < 4) {
+      setMessage({ type: 'error', text: 'PIN tidak valid.' });
+      return;
     }
+    setShowPinModal(false);
+    executeSubmit('password');
+  };
+
+  const submitNfc = () => {
+    if (!formData.nfc_card_id.trim()) {
+      setMessage({ type: 'error', text: 'ID Kartu tidak valid.' });
+      return;
+    }
+    setShowNfcModal(false);
+    executeSubmit('nfc');
+  };
+
+  const handleNfcKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitNfc();
+    }
+  };
+
+  const executeSubmit = async (method, faceDataStr = '', overrideNfcId = null) => {
+    if (method !== 'face_id') setIsLoading(true);
     setMessage({ type: '', text: '' });
 
     const endpoint = isLogin ? `${API_URL}/api/login` : `${API_URL}/api/register`;
-
     const payload = isLogin
-      ? { username: formData.username, password: formData.password, login_method: method, login_face_data: faceDataStr }
+      ? { username: formData.username, password: formData.password, login_method: method, login_face_data: faceDataStr, pin: formData.pin, nfc_card_id: overrideNfcId || formData.nfc_card_id }
       : formData;
 
     try {
@@ -233,25 +297,15 @@ const AuthPage = ({ onNavigate }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Terjadi kesalahan pada server');
-      }
+      if (!response.ok) throw new Error(data.error || 'Terjadi kesalahan pada server');
 
       if (isLogin) {
-        const loggedInUser = data.user || {
-          nama_lengkap: formData.username,
-          role_akun: 'user',
-          region: 'Jakarta',
-          status: 'aktif'
-        };
-
+        const loggedInUser = data.user || { nama_lengkap: formData.username, role_akun: 'user', region: 'Jakarta', status: 'aktif' };
         if (loggedInUser.status !== 'aktif' && loggedInUser.status_aktivasi !== 'aktif') {
            throw new Error('Akun Anda belum diaktifkan oleh Admin.');
         }
-
         localStorage.setItem('token', data.token || 'dummy-token');
         localStorage.setItem('user', JSON.stringify(loggedInUser));
         
@@ -272,9 +326,10 @@ const AuthPage = ({ onNavigate }) => {
         setTimeout(() => {
           setIsLogin(true);
           setLoginStep(1);
+          setShowMethodSelection(false);
           setShowPasswordField(false);
           setMessage({ type: '', text: '' });
-          setFormData({ ...formData, password: '' });
+          setFormData({ ...formData, password: '', pin: '', nfc_card_id: '' });
         }, 2000);
       }
     } catch (error) {
@@ -282,9 +337,9 @@ const AuthPage = ({ onNavigate }) => {
         stopCamera();
         setShowFaceModal(false);
         setScanPhase('idle');
-        setShowPasswordField(true);
       }
       setMessage({ type: 'error', text: error.message });
+      setFormData({ ...formData, pin: '', nfc_card_id: '' });
     } finally {
       setIsLoading(false);
     }
@@ -293,10 +348,50 @@ const AuthPage = ({ onNavigate }) => {
   const toggleAuthMode = () => {
     setIsLogin(!isLogin);
     setLoginStep(1);
+    setShowMethodSelection(false);
     setShowPasswordField(false);
     setMessage({ type: '', text: '' });
     setShowCaptcha(false);
     setHasFaceId(false);
+    setHas2FA(false);
+    setHasNFC(false);
+    setFormData({ ...formData, pin: '', nfc_card_id: '' });
+  };
+
+  const selectPasswordMethod = () => {
+    setShowMethodSelection(false);
+    setShowPasswordField(true);
+  };
+
+  const selectNfcMethod = async () => {
+    setShowNfcModal(true);
+    setNfcStatusText('Tempelkan kartu ke perangkat atau alat reader Anda.');
+    
+    if ('NDEFReader' in window) {
+      try {
+        const ndef = new window.NDEFReader();
+        await ndef.scan();
+        
+        ndef.onreading = event => {
+          const serialNumber = event.serialNumber;
+          setFormData(prev => ({ ...prev, nfc_card_id: serialNumber }));
+          setNfcStatusText('Kartu terbaca, memproses login...');
+          
+          setTimeout(() => {
+            setShowNfcModal(false);
+            executeSubmit('nfc', '', serialNumber);
+          }, 600);
+        };
+
+        ndef.onreadingerror = () => {
+          setNfcStatusText('Browser menolak e-KTP. Ketik ID manual di kolom bawah atau gunakan alat USB.');
+        };
+      } catch (error) {
+        setNfcStatusText('Sensor NFC tidak aktif. Ketik manual atau gunakan alat USB.');
+      }
+    } else {
+      setNfcStatusText('Browser tidak mendukung Web NFC. Ketik manual atau gunakan alat USB.');
+    }
   };
 
   const circleRadius = 110;
@@ -325,10 +420,16 @@ const AuthPage = ({ onNavigate }) => {
         .type-reg-3 { animation: typeReg3 5.5s infinite ease-out; }
         .cursor-reg { animation: cursorReg 5.5s infinite ease-in-out; }
         .check-reg { animation: checkReg 5.5s infinite cubic-bezier(0.175, 0.885, 0.32, 1.275); transform-origin: 120px 180px; }
-        .captcha-slider { -webkit-appearance: none; width: 100%; height: 12px; border-radius: 6px; background: #e5e7eb; outline: none; }
+        .captcha-slider { -webkit-appearance: none; width: 100%; height: 12px; border-radius: 6px; background: #e5e7eb; outline: none; touch-action: none; }
         .dark .captcha-slider { background: #374151; }
         .captcha-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 30px; height: 30px; border-radius: 50%; background: rgb(var(--theme-600)); cursor: pointer; box-shadow: 0 0 10px rgba(0,0,0,0.2); transition: transform 0.1s; }
         .captcha-slider::-webkit-slider-thumb:active { transform: scale(1.1); }
+        @keyframes tapCard {
+          0%, 100% { transform: translate(30px, -30px) rotate(15deg); opacity: 0; }
+          20% { opacity: 1; }
+          50% { transform: translate(0px, 0px) rotate(0deg); }
+          80% { opacity: 1; transform: translate(0px, 0px) rotate(0deg); }
+        }
       `}</style>
 
       <button onClick={() => onNavigate('landing')} className="absolute top-6 left-6 z-50 flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-[rgb(var(--theme-600))] dark:hover:text-[rgb(var(--theme-400))] transition-colors font-medium bg-white dark:bg-gray-800 px-4 py-2 rounded-full shadow-md">
@@ -389,21 +490,42 @@ const AuthPage = ({ onNavigate }) => {
             <form className="space-y-5 relative" onSubmit={handleInitialSubmit}>
               {showCaptcha && (
                 <div className="absolute inset-0 z-50 bg-white/90 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl flex flex-col items-center justify-center p-6 animate-[popIn_0.3s_ease-out]">
-                  <button type="button" onClick={() => setShowCaptcha(false)} className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                  <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Verifikasi Keamanan</h4>
-                  <div className={`relative w-[280px] h-[140px] rounded-lg overflow-hidden shadow-inner transition-colors duration-300 ${captchaStatus === 'error' ? 'ring-4 ring-red-500' : captchaStatus === 'success' ? 'ring-4 ring-green-500' : 'ring-2 ring-gray-200 dark:ring-gray-700'}`} style={{ backgroundImage: `url(${bgUrl})`, backgroundSize: '280px 140px' }}>
-                    <div className="absolute w-[46px] h-[46px] bg-black/50 rounded shadow-[inset_0_0_8px_rgba(0,0,0,0.8)]" style={{ top: '47px', left: `${captchaTarget}px` }}></div>
-                    <div className={`absolute w-[46px] h-[46px] rounded shadow-[0_0_10px_rgba(0,0,0,0.8)] border border-white/50 ${isVerifying ? 'transition-none' : 'transition-transform duration-100'}`} style={{ top: '47px', transform: `translateX(${sliderValue}px)`, backgroundImage: `url(${bgUrl})`, backgroundSize: '280px 140px', backgroundPosition: `-${captchaTarget}px -47px` }}></div>
+                  <button type="button" onClick={() => setShowCaptcha(false)} className="absolute top-3 right-3 text-gray-400 hover:text-red-500 transition-colors">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                  <div className="flex items-center justify-between w-full max-w-[280px] mb-4">
+                    <h4 className="text-lg font-bold text-gray-900 dark:text-white">Verifikasi Keamanan</h4>
+                    <button type="button" onClick={refreshCaptcha} className="p-1.5 text-gray-500 hover:text-[rgb(var(--theme-600))] hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors cursor-pointer" title="Ganti Gambar">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                    </button>
+                  </div>
+                  
+                  <div className={`relative w-[280px] h-[140px] rounded-lg overflow-hidden shadow-inner transition-colors duration-300 ${captchaStatus === 'error' ? 'ring-4 ring-red-500' : captchaStatus === 'success' ? 'ring-4 ring-green-500' : 'ring-2 ring-gray-200 dark:ring-gray-700'}`} 
+                       style={{ backgroundImage: `url(${bgUrl})`, backgroundColor: '#cbd5e1', backgroundSize: '280px 140px' }}>
+                    <div className="absolute w-[46px] h-[46px] bg-black/60 rounded border border-white/20 shadow-[inset_0_0_8px_rgba(0,0,0,0.9)]" style={{ top: '47px', left: `${captchaTarget}px` }}></div>
+                    <div className={`absolute w-[46px] h-[46px] rounded shadow-[0_0_12px_rgba(0,0,0,0.9)] border border-white/80 ${isVerifying ? 'transition-none' : 'transition-transform duration-100'}`} 
+                         style={{ top: '47px', transform: `translateX(${sliderValue}px)`, backgroundImage: `url(${bgUrl})`, backgroundColor: '#9ca3af', backgroundSize: '280px 140px', backgroundPosition: `-${captchaTarget}px -47px` }}></div>
                   </div>
                   <div className="w-[280px] mt-6">
-                    <input type="range" min="0" max="234" value={sliderValue} onChange={(e) => setSliderValue(e.target.value)} onMouseUp={verifyCaptcha} onTouchEnd={verifyCaptcha} disabled={isVerifying || captchaStatus === 'success'} className="captcha-slider" />
+                    
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="234" 
+                      value={sliderValue} 
+                      onChange={(e) => setSliderValue(Number(e.target.value))} 
+                      onPointerUp={verifyCaptcha} 
+                      onTouchEnd={verifyCaptcha} 
+                      onKeyUp={(e) => e.key === 'Enter' ? verifyCaptcha() : null}
+                      disabled={isVerifying || captchaStatus === 'success'} 
+                      className="captcha-slider" 
+                    />
                     <p className="text-center text-sm text-gray-500 mt-3 font-medium">Geser untuk melengkapi gambar</p>
                   </div>
                 </div>
               )}
               
               <div className={`${showCaptcha ? 'opacity-30 pointer-events-none blur-sm transition-all' : 'opacity-100 transition-all'}`}>
-                
                 {!isLogin && (
                   <div className="mb-5">
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nama Lengkap</label>
@@ -429,50 +551,55 @@ const AuthPage = ({ onNavigate }) => {
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
                       <div className="flex gap-2">
                         <input type="text" value={formData.username} disabled className="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 cursor-not-allowed"/>
-                        <button type="button" onClick={() => { setLoginStep(1); setShowPasswordField(false); setHasFaceId(false); }} className="px-5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">Ubah</button>
+                        <button type="button" onClick={() => { setLoginStep(1); setShowMethodSelection(false); setShowPasswordField(false); }} className="px-5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">Ubah</button>
                       </div>
                     </div>
 
-                    {hasFaceId && !showPasswordField && (
-                      <div className="flex flex-col items-center gap-4 mb-6">
-                        <button 
-                          type="button" 
-                          onClick={() => startFaceLogin(selectedCamera)} 
-                          disabled={!modelsLoaded}
-                          className="w-full flex items-center justify-center gap-3 bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-blue-700 hover:shadow-blue-500/30 transition-all active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
-                        >
-                          {!modelsLoaded ? (
-                            <>
-                              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                              Memuat AI...
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/></svg>
-                              Gunakan Face ID
-                            </>
-                          )}
-                        </button>
-                        <button type="button" onClick={() => setShowPasswordField(true)} className="text-sm font-bold text-gray-500 dark:text-gray-400 hover:text-[rgb(var(--theme-600))] dark:hover:text-[rgb(var(--theme-400))] transition-colors">
-                          Gunakan Kata Sandi
+                    {showMethodSelection && (
+                      <div className="flex flex-col gap-3">
+                        <p className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Pilih Metode Login:</p>
+                        {hasFaceId && (
+                           <button type="button" onClick={() => startFaceLogin(selectedCamera)} disabled={!modelsLoaded} className="w-full flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white font-bold py-4 px-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all active:scale-[0.98] disabled:opacity-70">
+                             {!modelsLoaded ? <div className="w-5 h-5 border-2 border-gray-400 border-t-gray-900 dark:border-t-white rounded-full animate-spin"></div> : <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/></svg>}
+                             {modelsLoaded ? 'Login dengan Face ID' : 'Memuat AI...'}
+                           </button>
+                        )}
+                        {hasNFC && (
+                           <button type="button" onClick={selectNfcMethod} className="w-full flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white font-bold py-4 px-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all active:scale-[0.98]">
+                             <svg className="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                             Scan Kartu / e-KTP
+                           </button>
+                        )}
+                        <button type="button" onClick={selectPasswordMethod} className="w-full flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white font-bold py-4 px-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all active:scale-[0.98]">
+                           <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                           Gunakan Kata Sandi
                         </button>
                       </div>
                     )}
 
                     {showPasswordField && (
                       <>
-                        <div className="mb-5">
+                        <div className="mb-5 relative">
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
-                          <input type="password" name="password" autoComplete="current-password" value={formData.password} onChange={handleChange} required className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 focus:border-[rgb(var(--theme-500))] focus:ring-2 focus:ring-[rgb(var(--theme-500))] outline-none text-gray-900 dark:text-white transition-all"/>
+                          <div className="relative">
+                            <input type={showPassword ? "text" : "password"} name="password" autoComplete="current-password" value={formData.password} onChange={handleChange} required className="w-full px-4 py-3 pr-12 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 focus:border-[rgb(var(--theme-500))] focus:ring-2 focus:ring-[rgb(var(--theme-500))] outline-none text-gray-900 dark:text-white transition-all"/>
+                            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                              {showPassword ? (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                              ) : (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                              )}
+                            </button>
+                          </div>
                         </div>
                         <div className="flex justify-between items-center mb-6">
-                          {hasFaceId ? (
-                            <button type="button" onClick={() => setShowPasswordField(false)} className="text-sm text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/></svg>
-                              Kembali ke Face ID
+                          {(hasFaceId || hasNFC) ? (
+                            <button type="button" onClick={() => { setShowPasswordField(false); setShowMethodSelection(true); }} className="text-sm text-[rgb(var(--theme-600))] hover:underline font-bold flex items-center gap-1">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                              Ganti Metode
                             </button>
                           ) : <div></div>}
-                          <a href="#" className="text-sm text-[rgb(var(--theme-600))] hover:text-[rgb(var(--theme-700))] font-medium">Lupa Password?</a>
+                          <a href="#" className="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-medium">Lupa Password?</a>
                         </div>
                         <button type="submit" disabled={isLoading} className="w-full bg-[rgb(var(--theme-600))] text-white font-bold py-3.5 rounded-lg shadow-lg hover:shadow-[0_0_15px_rgba(var(--theme-600),0.4)] active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed">
                           {isLoading ? 'Memproses...' : 'Masuk'}
@@ -492,9 +619,18 @@ const AuthPage = ({ onNavigate }) => {
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
                       <input type="email" name="email" value={formData.email} onChange={handleChange} required className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 focus:border-[rgb(var(--theme-500))] focus:ring-2 focus:ring-[rgb(var(--theme-500))] outline-none text-gray-900 dark:text-white transition-all"/>
                     </div>
-                    <div className="mb-5">
+                    <div className="mb-5 relative">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
-                      <input type="password" name="password" value={formData.password} onChange={handleChange} required className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 focus:border-[rgb(var(--theme-500))] focus:ring-2 focus:ring-[rgb(var(--theme-500))] outline-none text-gray-900 dark:text-white transition-all"/>
+                      <div className="relative">
+                        <input type={showPassword ? "text" : "password"} name="password" value={formData.password} onChange={handleChange} required className="w-full px-4 py-3 pr-12 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 focus:border-[rgb(var(--theme-500))] focus:ring-2 focus:ring-[rgb(var(--theme-500))] outline-none text-gray-900 dark:text-white transition-all"/>
+                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                          {showPassword ? (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                          ) : (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
                     <button type="submit" disabled={isLoading} className="w-full bg-[rgb(var(--theme-600))] text-white font-bold py-3.5 rounded-lg shadow-lg hover:shadow-[0_0_15px_rgba(var(--theme-600),0.4)] active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed">
                       {isLoading ? 'Memproses...' : 'Daftar Sekarang'}
@@ -529,16 +665,13 @@ const AuthPage = ({ onNavigate }) => {
                 {scanPhase === 'success' && <p className="text-emerald-400 text-lg font-bold">Verifikasi Selesai</p>}
               </div>
             </div>
-
             <div className="relative w-72 h-72 flex items-center justify-center mb-6">
               <svg className="absolute inset-0 w-full h-full -rotate-90 z-20 pointer-events-none" viewBox="0 0 260 260">
                 <circle cx="130" cy="130" r={circleRadius} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="8" />
                 <circle cx="130" cy="130" r={circleRadius} fill="none" stroke={scanPhase === 'success' ? '#10B981' : '#3B82F6'} strokeWidth="8" strokeLinecap="round" strokeDasharray={circleCircumference} strokeDashoffset={strokeDashoffset} className="transition-all duration-300 ease-out" />
               </svg>
-
               <div className="absolute w-[220px] h-[220px] rounded-full overflow-hidden bg-zinc-900 z-10 flex items-center justify-center shadow-[0_0_50px_rgba(0,0,0,0.8)] border border-white/10">
                 <video ref={videoRef} playsInline muted className={`w-full h-full object-cover transform scale-x-[-1] ${scanPhase === 'detecting' || scanPhase === 'processing' || scanPhase === 'success' ? 'block' : 'hidden'}`}></video>
-                
                 {scanPhase === 'success' && (
                   <div className="absolute inset-0 bg-emerald-500/90 backdrop-blur-sm flex items-center justify-center animate-[popIn_0.3s_ease-out] z-30">
                     <svg className="w-24 h-24 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
@@ -546,14 +679,9 @@ const AuthPage = ({ onNavigate }) => {
                 )}
               </div>
             </div>
-
             {cameras.length > 1 && scanPhase !== 'success' && (
               <div className="mb-6 w-full max-w-xs">
-                <select 
-                  value={selectedCamera} 
-                  onChange={handleCameraChange}
-                  className="w-full px-4 py-2.5 rounded-xl bg-zinc-800/80 border border-white/10 text-white text-xs font-medium outline-none focus:ring-2 focus:ring-blue-500 appearance-none text-center cursor-pointer"
-                >
+                <select value={selectedCamera} onChange={handleCameraChange} className="w-full px-4 py-2.5 rounded-xl bg-zinc-800/80 border border-white/10 text-white text-xs font-medium outline-none focus:ring-2 focus:ring-blue-500 appearance-none text-center cursor-pointer">
                   {cameras.map((camera, index) => (
                     <option key={camera.deviceId} value={camera.deviceId} className="text-gray-900 bg-white">
                       {camera.label || `Kamera ${index + 1}`}
@@ -562,10 +690,88 @@ const AuthPage = ({ onNavigate }) => {
                 </select>
               </div>
             )}
-
             <div className="w-full max-w-xs space-y-3 mt-4">
               <button onClick={cancelFaceLogin} className="w-full px-4 py-3.5 rounded-2xl font-bold text-white bg-zinc-800 hover:bg-zinc-700 transition-colors">Batalkan</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showPinModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm"></div>
+          <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-sm shadow-2xl z-10 p-8 text-center animate-[popIn_0.2s_ease-out]">
+            <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            </div>
+            <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2">Autentikasi 2 Langkah</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Masukkan PIN keamanan 2FA Anda</p>
+            <div className="relative mb-6">
+              <input type={showPin ? "text" : "password"} maxLength="6" name="pin" value={formData.pin} onChange={(e) => setFormData({...formData, pin: e.target.value.replace(/[^0-9]/g, '')})} placeholder="••••••" className="w-full text-center text-3xl tracking-[0.5em] px-4 py-4 pr-12 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:border-[rgb(var(--theme-500))] focus:ring-2 focus:ring-[rgb(var(--theme-500))] outline-none text-gray-900 dark:text-white transition-all"/>
+              <button type="button" onClick={() => setShowPin(!showPin)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                {showPin ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                )}
+              </button>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => {setShowPinModal(false); setFormData({...formData, pin: ''})}} className="flex-1 py-3.5 rounded-xl font-bold text-gray-700 bg-gray-100 hover:bg-gray-200">Batal</button>
+              <button onClick={submitPin} disabled={isLoading} className="flex-1 py-3.5 rounded-xl font-bold text-white bg-[rgb(var(--theme-600))] hover:bg-[rgb(var(--theme-700))] disabled:opacity-70">Verifikasi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNfcModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm"></div>
+          <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-md shadow-2xl z-10 p-8 text-center animate-[popIn_0.2s_ease-out]">
+            <div className="flex justify-end mb-2">
+              <button onClick={() => {setShowNfcModal(false); setFormData({...formData, nfc_card_id: ''})}} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <div className="relative w-32 h-40 mx-auto mb-6 flex justify-center items-center">
+              <svg className="absolute w-20 h-32 text-gray-400 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
+                <rect x="5" y="2" width="14" height="20" rx="2" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18h.01" />
+              </svg>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
+                <span className="absolute w-8 h-8 border-2 border-emerald-500 rounded-full animate-[ping_1.5s_cubic-bezier(0,0,0.2,1)_infinite]"></span>
+                <span className="absolute w-12 h-12 border-2 border-emerald-500 rounded-full animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite]"></span>
+              </div>
+              <svg className="absolute w-16 h-10 text-[rgb(var(--theme-500))] animate-[tapCard_2s_ease-in-out_infinite]" style={{ transformOrigin: 'bottom right' }} fill="currentColor" viewBox="0 0 24 24">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zm0 4v8h16V8H4z" />
+              </svg>
+            </div>
+
+            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2">Scan Kartu Anda</h3>
+            <p className="text-sm font-semibold text-red-500 mb-4">{nfcStatusText}</p>
+            <div className="relative mb-6">
+              <input 
+                ref={nfcInputRef}
+                type={showNfcId ? "text" : "password"} 
+                name="nfc_card_id" 
+                value={formData.nfc_card_id} 
+                onChange={(e) => setFormData({...formData, nfc_card_id: e.target.value})} 
+                onKeyDown={handleNfcKeyDown}
+                placeholder="Ketik manual Nomor KTP (NIK)" 
+                className="w-full text-center px-4 py-4 pr-12 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:border-[rgb(var(--theme-500))] focus:ring-2 focus:ring-[rgb(var(--theme-500))] outline-none text-gray-900 dark:text-white transition-all"
+              />
+              <button type="button" onClick={() => setShowNfcId(!showNfcId)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                {showNfcId ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                )}
+              </button>
+            </div>
+            <button onClick={submitNfc} disabled={isLoading} className="w-full py-4 rounded-xl font-bold text-white bg-[rgb(var(--theme-600))] hover:bg-[rgb(var(--theme-700))] disabled:opacity-70 shadow-lg">
+              {isLoading ? 'Memproses...' : 'Masuk Sekarang'}
+            </button>
           </div>
         </div>
       )}

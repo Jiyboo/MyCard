@@ -15,6 +15,7 @@ type Conversation struct {
 	CreatedAt    time.Time                 `json:"created_at"`
 	UpdatedAt    time.Time                 `json:"updated_at"`
 	UnreadCount  int64                     `gorm:"-" json:"unread_count"`
+	IsOnline     bool                      `gorm:"-" json:"is_online"`
 }
 
 type ConversationParticipant struct {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from '../dashboard/Sidebar';
 import DashboardNavbar from '../dashboard/DashboardNavbar';
 import StatChart from '../dashboard/StatChart';
@@ -11,7 +11,7 @@ import BuatKartu from '../dashboard/BuatKartu';
 import LiveChat from '../dashboard/LiveChat';
 import Profile from '../dashboard/Profile';
 import Settings from '../dashboard/Settings';
-import { getDashboardData, regions, chartModels } from '../../utils/dashboardHelpers';
+import { regions, chartModels } from '../../utils/dashboardHelpers';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -27,6 +27,17 @@ const DashboardLayout = ({ onNavigate }) => {
   const [regionFilter, setRegionFilter] = useState('global');
   const [userChartModel, setUserChartModel] = useState('bar');
   const [cardChartModel, setCardChartModel] = useState('pie');
+
+  const [data, setData] = useState(null);
+
+  // --- TAMBAHAN KODE UNTUK SIDEBAR DI SINI ---
+  // Default terbuka di layar besar (desktop), tertutup di HP
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+  // ------------------------------------------
 
   useEffect(() => {
     const stored = localStorage.getItem('user');
@@ -59,13 +70,13 @@ const DashboardLayout = ({ onNavigate }) => {
         });
 
         if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
+          const resData = await response.json();
+          if (Array.isArray(resData)) {
             setMenuPermissions({});
-            setAllowedMenuCodes(data);
+            setAllowedMenuCodes(resData);
           } else {
-            setMenuPermissions(data || {});
-            setAllowedMenuCodes(Object.keys(data || {}));
+            setMenuPermissions(resData || {});
+            setAllowedMenuCodes(Object.keys(resData || {}));
           }
         } else {
           setMenuPermissions({});
@@ -96,7 +107,29 @@ const DashboardLayout = ({ onNavigate }) => {
     }
   }, [isLoaded, userRole, allowedMenuCodes]);
 
-  const data = useMemo(() => getDashboardData(userRole, regionFilter), [userRole, regionFilter]);
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/dashboard/stats?region=${encodeURIComponent(regionFilter)}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        
+        if (response.ok) {
+          const stats = await response.json();
+          setData(stats);
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    if (isLoaded && activeMenu === 'beranda') {
+      fetchDashboardStats();
+    }
+  }, [isLoaded, regionFilter, activeMenu]);
+
   const themeColor = "14, 165, 233"; 
 
   const handleLogout = () => {
@@ -123,13 +156,29 @@ const DashboardLayout = ({ onNavigate }) => {
 
   return (
     <div className="flex bg-gray-50 dark:bg-gray-950 min-h-screen transition-colors duration-500 font-sans view-transition-root">
-      <Sidebar role={userRole} activeMenu={activeMenu} setActiveMenu={setActiveMenu} onLogout={handleLogout} allowedMenuCodes={allowedMenuCodes} />
+      
+      {/* PASTIKAN PROPS isOpen DAN toggleSidebar DIKIRIM KE SINI */}
+      <Sidebar 
+        role={userRole} 
+        activeMenu={activeMenu} 
+        setActiveMenu={setActiveMenu} 
+        onLogout={handleLogout} 
+        allowedMenuCodes={allowedMenuCodes} 
+        isOpen={isSidebarOpen} 
+        toggleSidebar={toggleSidebar}
+      />
       
       <div className="flex-1 flex flex-col min-w-0">
-        <DashboardNavbar setActiveMenu={setActiveMenu} />
+        
+        {/* PASTIKAN PROPS toggleSidebar DIKIRIM KE SINI */}
+        <DashboardNavbar 
+            setActiveMenu={setActiveMenu} 
+            toggleSidebar={toggleSidebar} 
+        />
         
         <main className="flex-1 p-6 md:p-8 overflow-y-auto">
           <div className="max-w-7xl mx-auto">
+            {/* ... SISA KODE KONTEN ANDA ... */}
             
             {activeMenu === 'beranda' && data && userRole !== 'user' && (
               <div className="animate-[popIn_0.4s_ease-out] space-y-8">
@@ -163,15 +212,15 @@ const DashboardLayout = ({ onNavigate }) => {
                       <StatCard iconColor="blue" title="Total Pengguna" value={data.totalUsers.toLocaleString('id-ID')} icon="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                       <StatCard iconColor="emerald" title="Total Kartu" value={data.totalCards.toLocaleString('id-ID')} icon="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                       <StatCard iconColor="sky" title="Kartu Aktif" value={data.cards.aktif.toLocaleString('id-ID')} icon="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      {data.regionalAdmins !== null && (
+                      {data.regionalAdmins !== null && data.regionalAdmins !== undefined && (
                          <StatCard iconColor="purple" title="Admin Regional" value={data.regionalAdmins} icon="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                       )}
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                       <ChartContainer title="Status Aktivasi Pengguna" Selector={() => <SelectorBtn models={chartModels} current={userChartModel} setCurrent={setUserChartModel} />}>
-                        <StatChart type={userChartModel} title="Jumlah Pengguna" labels={['Aktif', 'Pending (Menunggu)']} dataValue={[data.users.aktif, data.users.pending]} themeColor={themeColor} />
-                      </ChartContainer>
+                        <StatChart type={userChartModel} title="Jumlah Pengguna" labels={['Aktif', 'Pending (Menunggu)', 'Tidak Aktif']} dataValue={[data.users.aktif, data.users.pending, data.users.tidakAktif]} themeColor={themeColor} />
+                    </ChartContainer>
 
                       <ChartContainer title="Status Kondisi Kartu" Selector={() => <SelectorBtn models={chartModels} current={cardChartModel} setCurrent={setCardChartModel} />}>
                         <StatChart type={cardChartModel} title="Jumlah Kartu" labels={['Aktif', 'Tidak Aktif']} dataValue={[data.cards.aktif, data.cards.tidakAktif]} themeColor="16, 185, 129" />
@@ -182,41 +231,15 @@ const DashboardLayout = ({ onNavigate }) => {
               </div>
             )}
 
-            {activeMenu === 'buat_kartu' && (
-              <BuatKartu />
-            )}
-
-            {activeMenu === 'profil' && (
-              <Profile onNavigate={onNavigate} />
-            )}
-
-            {activeMenu === 'pengaturan' && (
-              <Settings onNavigate={onNavigate} />
-            )}
-
-            {activeMenu === 'live_chat' && (
-              <LiveChat role={userRole} />
-            )}
-
-            {activeMenu === 'kelola_user' && (userRole === 'superadmin' || allowedMenuCodes.includes('kelola_user')) && (
-              <KelolaUser role={userRole} adminRegion={adminRegion} permissions={menuPermissions['kelola_user'] || {}} />
-            )}
-
-            {activeMenu === 'kelola_admin_regional' && (userRole === 'superadmin' || allowedMenuCodes.includes('kelola_admin_regional')) && (
-              <KelolaAdminRegional role={userRole} adminRegion={adminRegion} permissions={menuPermissions['kelola_admin_regional'] || {}} />
-            )}
-
-            {activeMenu === 'kelola_organisasi' && (userRole === 'superadmin' || allowedMenuCodes.includes('kelola_organisasi')) && (
-              <KelolaOrganisasi role={userRole} adminRegion={adminRegion} permissions={menuPermissions['kelola_organisasi'] || {}} />
-            )}
-
-            {activeMenu === 'atur_landing_page' && (userRole === 'superadmin' || allowedMenuCodes.includes('atur_landing_page')) && (
-              <KelolaLandingPage role={userRole} permissions={menuPermissions['atur_landing_page'] || {}} />
-            )}
-
-            {activeMenu === 'kelola_akses_menu' && userRole === 'superadmin' && (
-              <KelolaAksesMenu role={userRole} />
-            )}
+            {activeMenu === 'buat_kartu' && ( <BuatKartu /> )}
+            {activeMenu === 'profil' && ( <Profile onNavigate={onNavigate} /> )}
+            {activeMenu === 'pengaturan' && ( <Settings onNavigate={onNavigate} /> )}
+            {activeMenu === 'live_chat' && ( <LiveChat role={userRole} /> )}
+            {activeMenu === 'kelola_user' && (userRole === 'superadmin' || allowedMenuCodes.includes('kelola_user')) && ( <KelolaUser role={userRole} adminRegion={adminRegion} permissions={menuPermissions['kelola_user'] || {}} /> )}
+            {activeMenu === 'kelola_admin_regional' && (userRole === 'superadmin' || allowedMenuCodes.includes('kelola_admin_regional')) && ( <KelolaAdminRegional role={userRole} adminRegion={adminRegion} permissions={menuPermissions['kelola_admin_regional'] || {}} /> )}
+            {activeMenu === 'kelola_organisasi' && (userRole === 'superadmin' || allowedMenuCodes.includes('kelola_organisasi')) && ( <KelolaOrganisasi role={userRole} adminRegion={adminRegion} permissions={menuPermissions['kelola_organisasi'] || {}} /> )}
+            {activeMenu === 'atur_landing_page' && (userRole === 'superadmin' || allowedMenuCodes.includes('atur_landing_page')) && ( <KelolaLandingPage role={userRole} permissions={menuPermissions['atur_landing_page'] || {}} /> )}
+            {activeMenu === 'kelola_akses_menu' && userRole === 'superadmin' && ( <KelolaAksesMenu role={userRole} /> )}
 
             {activeMenu !== 'beranda' && 
              activeMenu !== 'profil' && 

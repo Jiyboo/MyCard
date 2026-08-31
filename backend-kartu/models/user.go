@@ -21,8 +21,10 @@ type User struct {
 	DiaktifkanOleh   *int           `gorm:"column:diaktifkan_oleh;type:int(11);default:null" json:"diaktifkan_oleh"`
 	FotoProfil       string         `gorm:"column:foto_profil;type:longtext" json:"foto_profil"`
 	TwoFactorEnabled bool           `gorm:"column:two_factor_enabled;default:false" json:"two_factor_enabled"`
+	TwoFactorPin     string         `gorm:"column:two_factor_pin" json:"two_factor_pin"`
 	BiometricEnabled bool           `gorm:"column:biometric_enabled;default:false" json:"biometric_enabled"`
 	NFCEnabled       bool           `gorm:"column:nfc_enabled;default:false" json:"nfc_enabled"`
+	NfcCardId        string         `gorm:"column:nfc_card_id" json:"nfc_card_id"`
 	FaceData         string         `gorm:"column:face_data;type:longtext" json:"face_data"`
 }
 

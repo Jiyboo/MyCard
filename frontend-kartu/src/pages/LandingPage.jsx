@@ -10,7 +10,7 @@ const LandingPage = ({ onNavigate }) => {
     <div className="min-h-screen flex flex-col font-sans bg-gray-50 dark:bg-gray-900 transition-colors duration-500">
       <Navbar onNavigate={onNavigate} />
       <main className="flex-grow">
-        <Hero />
+        <Hero onNavigate={onNavigate} />
         <Features />
         <HowItWorks />
       </main>

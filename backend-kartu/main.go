@@ -43,6 +43,8 @@ func main() {
 	menuController := controllers.NewMenuController(db)
 	chatController := controllers.NewChatController(db)
 	cardController := controllers.NewCardController(db)
+	dashboardController := controllers.NewDashboardController(db)
+	scanController := controllers.NewScanController(db)
 
 	r := gin.Default()
 
@@ -57,6 +59,10 @@ func main() {
 
 	api := r.Group("/api")
 	{
+		api.GET("/scan", scanController.ScanQR)
+
+		api.GET("/dashboard/stats", dashboardController.GetStats)
+
 		api.GET("/cards", cardController.GetCards)
 		api.GET("/cards/eligible-users", cardController.GetEligibleUsers)
 		api.POST("/cards/create", cardController.CreateCard)

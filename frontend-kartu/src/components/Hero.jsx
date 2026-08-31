@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL;
 
-const Hero = () => {
+const Hero = ({ onNavigate }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [heroData, setHeroData] = useState({
     title: 'Kelola peserta dan verifikasi QR dengan lebih cerdas',
@@ -93,7 +93,10 @@ const Hero = () => {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 mb-12 relative z-10">
-              <button className="bg-white text-blue-700 px-8 py-3.5 rounded-full font-bold hover:bg-gray-50 transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_25px_rgba(255,255,255,0.5)] active:scale-95 text-lg">
+              {/* 2. Gunakan fungsi onNavigate('auth') saat tombol diklik */}
+              <button 
+                onClick={() => onNavigate('auth')}
+                className="bg-white text-blue-700 px-8 py-3.5 rounded-full font-bold hover:bg-gray-50 transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_25px_rgba(255,255,255,0.5)] active:scale-95 text-lg">
                 Mulai Sekarang
               </button>
             </div>

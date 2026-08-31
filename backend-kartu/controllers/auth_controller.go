@@ -53,7 +53,9 @@ func (ctrl *AuthController) CheckUsername(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"biometric_enabled": user.BiometricEnabled,
+		"biometric_enabled":  user.BiometricEnabled,
+		"two_factor_enabled": user.TwoFactorEnabled,
+		"nfc_enabled":        user.NFCEnabled,
 	})
 }
 
@@ -88,6 +90,8 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 		Password      string `json:"password"`
 		LoginMethod   string `json:"login_method"`
 		LoginFaceData string `json:"login_face_data"`
+		Pin           string `json:"pin"`
+		NfcCardId     string `json:"nfc_card_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -110,16 +114,23 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Kamera tidak menangkap gambar wajah"})
 			return
 		}
-
 		isMatch := compareFaceDescriptors(user.FaceData, req.LoginFaceData)
 		if !isMatch {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Wajah tidak cocok dengan pengguna"})
 			return
 		}
-
+	} else if req.LoginMethod == "nfc" {
+		if !user.NFCEnabled || user.NfcCardId == "" || req.NfcCardId != user.NfcCardId {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Kartu NFC tidak valid atau tidak terdaftar"})
+			return
+		}
 	} else {
 		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Kata sandi salah"})
+			return
+		}
+		if user.TwoFactorEnabled && user.TwoFactorPin != req.Pin {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "PIN 2FA salah"})
 			return
 		}
 	}

@@ -1,19 +1,62 @@
 import { useState, useEffect } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
+const API_URL = import.meta.env.VITE_API_BASE_URL;
+
 const ScanQR = ({ onNavigate }) => {
   const [activeTab, setActiveTab] = useState('camera');
-  const [scanResult, setScanResult] = useState(null);
+  const [cardData, setCardData] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [customAlert, setCustomAlert] = useState({ isOpen: false, title: '', message: '', type: 'error' });
+  const [isLoading, setIsLoading] = useState(false);
+  const [cameras, setCameras] = useState([]);
+  const [selectedCameraId, setSelectedCameraId] = useState('');
+
+  const fetchMemberData = async (qrText) => {
+    setIsLoading(true);
+    try {
+      const cleanQR = encodeURIComponent(qrText.trim());
+      const response = await fetch(`${API_URL}/api/scan?qr=${cleanQR}`);
+      if (!response.ok) {
+        throw new Error('Barcoded atau kartu tidak ada');
+      }
+      const data = await response.json();
+      setCardData(data);
+      setIsModalOpen(true);
+    } catch (err) {
+      showCustomAlert('Pemindaian Gagal', 'Barcoded atau kartu tidak ada', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'camera') {
+      Html5Qrcode.getCameras()
+        .then((devices) => {
+          if (devices && devices.length) {
+            setCameras(devices);
+            if (!selectedCameraId) {
+              const backCamera = devices.find(
+                (d) => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('belakang')
+              );
+              setSelectedCameraId(backCamera ? backCamera.id : devices[0].id);
+            }
+          }
+        })
+        .catch(() => {
+          setCameraError('Gagal mengakses daftar kamera. Pastikan izin diberikan.');
+        });
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     let scanner;
     let startPromise;
     let isMounted = true;
 
-    if (activeTab === 'camera' && !isModalOpen) {
+    if (activeTab === 'camera' && selectedCameraId && !isModalOpen && !isLoading) {
       scanner = new Html5Qrcode("reader-camera");
       
       const config = { 
@@ -23,16 +66,18 @@ const ScanQR = ({ onNavigate }) => {
       };
       
       startPromise = scanner.start(
-        { facingMode: "environment" },
+        selectedCameraId,
         config,
         (decodedText) => {
           if (isMounted) {
-            setScanResult(decodedText);
-            setIsModalOpen(true);
+            if (scanner && startPromise) {
+              scanner.stop().catch(() => {});
+            }
+            fetchMemberData(decodedText);
           }
         },
         () => {}
-      ).catch((err) => {
+      ).catch(() => {
         if (isMounted) {
           setCameraError('Kamera gagal dimuat. Pastikan izin diberikan dan menggunakan koneksi aman (HTTPS/Localhost).');
         }
@@ -47,7 +92,7 @@ const ScanQR = ({ onNavigate }) => {
         }).catch(() => {});
       }
     };
-  }, [activeTab, isModalOpen]);
+  }, [activeTab, selectedCameraId, isModalOpen, isLoading]);
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
@@ -56,11 +101,10 @@ const ScanQR = ({ onNavigate }) => {
     try {
       const html5QrCode = new Html5Qrcode("reader-file");
       const decodedText = await html5QrCode.scanFile(file, true);
-      setScanResult(decodedText);
-      setIsModalOpen(true);
       html5QrCode.clear();
+      fetchMemberData(decodedText);
     } catch (err) {
-      showCustomAlert('Pemindaian Gagal', 'QR Code atau Barcode tidak dapat ditemukan pada gambar yang Anda unggah.', 'error');
+      showCustomAlert('Pemindaian Gagal', 'Barcoded atau kartu tidak ada', 'error');
     }
     
     event.target.value = '';
@@ -81,16 +125,7 @@ const ScanQR = ({ onNavigate }) => {
 
   const closeModal = () => {
     setIsModalOpen(false);
-    setScanResult(null);
-  };
-
-  const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(scanResult);
-      showCustomAlert('Berhasil Disalin', 'Data pemindaian telah disalin ke clipboard perangkat Anda.', 'success');
-    } catch (err) {
-      showCustomAlert('Akses Ditolak', 'Browser memblokir fitur salin karena koneksi tidak menggunakan HTTPS.', 'error');
-    }
+    setCardData(null);
   };
 
   return (
@@ -135,6 +170,26 @@ const ScanQR = ({ onNavigate }) => {
         <div className="px-8 pb-8 relative">
           
           <div className={`${activeTab === 'camera' ? 'block' : 'hidden'} animate-fade-in`}>
+            
+            {cameras.length > 0 && (
+              <div className="mb-4 relative z-20">
+                <select 
+                  value={selectedCameraId} 
+                  onChange={(e) => setSelectedCameraId(e.target.value)}
+                  className="w-full p-3 pl-4 pr-10 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium focus:ring-2 focus:ring-[rgb(var(--theme-500))] focus:border-transparent outline-none appearance-none transition-all shadow-sm"
+                >
+                  {cameras.map((camera, index) => (
+                    <option key={camera.id} value={camera.id}>
+                      {camera.label || `Kamera ${index + 1}`}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                </div>
+              </div>
+            )}
+
             <div className="relative bg-gray-900 rounded-[2rem] overflow-hidden shadow-2xl aspect-square w-full flex items-center justify-center border-[6px] border-gray-100 dark:border-gray-800">
               {cameraError ? (
                 <div className="text-center p-6 text-red-400 z-20">
@@ -145,7 +200,7 @@ const ScanQR = ({ onNavigate }) => {
               
               <div id="reader-camera" className="absolute inset-0 w-full h-full object-cover"></div>
               
-              {!cameraError && !isModalOpen && (
+              {!cameraError && !isModalOpen && !isLoading && selectedCameraId && (
                 <div className="absolute inset-0 border-[32px] border-black/50 z-10 pointer-events-none backdrop-blur-[1px]">
                   <div className="w-full h-full border border-white/20 rounded-xl relative">
                     <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-[rgb(var(--theme-400))] -mt-[2px] -ml-[2px] rounded-tl-xl shadow-[0_0_10px_rgb(var(--theme-400))]"></div>
@@ -154,6 +209,13 @@ const ScanQR = ({ onNavigate }) => {
                     <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-[rgb(var(--theme-400))] -mb-[2px] -mr-[2px] rounded-br-xl shadow-[0_0_10px_rgb(var(--theme-400))]"></div>
                     <div className="w-full h-0.5 bg-[rgb(var(--theme-400))] shadow-[0_0_15px_rgb(var(--theme-400))] absolute top-1/2 animate-[scan_2.5s_ease-in-out_infinite]"></div>
                   </div>
+                </div>
+              )}
+              
+              {isLoading && (
+                <div className="absolute inset-0 bg-black/60 z-20 flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
+                  <p className="text-white mt-4 font-medium">Memverifikasi Data...</p>
                 </div>
               )}
             </div>
@@ -179,50 +241,45 @@ const ScanQR = ({ onNavigate }) => {
 
       <div id="reader-file" className="hidden"></div>
 
-      {isModalOpen && (
+      {isModalOpen && cardData && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm animate-backdrop-fade" onClick={closeModal}></div>
-          <div className="bg-white dark:bg-gray-900 rounded-[2rem] w-full max-w-sm shadow-2xl z-10 overflow-hidden text-center border border-gray-100 dark:border-gray-800 animate-modal-pop">
+          <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-md animate-backdrop-fade" onClick={closeModal}></div>
+          <div className="relative z-10 w-full max-w-sm flex flex-col items-center animate-modal-pop perspective-[1500px]">
             
-            <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 p-8 flex justify-center relative overflow-hidden">
-              <div className="absolute inset-0 bg-white/20 transform -skew-y-12"></div>
-              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-xl relative z-10 animate-bounce-soft">
-                <svg className="w-12 h-12 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" />
-                </svg>
+            <div className="w-full h-56 bg-gradient-to-br from-indigo-600 via-purple-600 to-emerald-500 rounded-2xl p-6 relative overflow-hidden card-3d border border-white/20">
+              <div className="absolute inset-0 card-shine"></div>
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+              <div className="absolute bottom-0 left-0 w-24 h-24 bg-black/10 rounded-full blur-xl -ml-5 -mb-5"></div>
+              
+              <div className="relative h-full flex flex-col justify-between z-10 text-white drop-shadow-md">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs font-semibold tracking-widest text-white/70 uppercase">Member Card</p>
+                    <p className="text-sm font-mono mt-1 text-white/90">{cardData.nomor}</p>
+                    <p className="text-xs font-semibold mt-1 px-2 py-0.5 inline-block bg-white/20 rounded-md uppercase tracking-wider">{cardData.role}</p>
+                  </div>
+                  <svg className="w-8 h-8 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+                </div>
+                <div>
+                  <p className="text-xs text-white/70 uppercase tracking-wider mb-1">Nama Anggota</p>
+                  <p className="text-xl font-bold uppercase tracking-wide truncate">{cardData.nama}</p>
+                </div>
               </div>
             </div>
 
-            <div className="p-8">
-              <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2">Scan Berhasil!</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">Data telah terbaca oleh sistem Jiaf.</p>
-              
-              <div className="bg-gray-50 dark:bg-gray-800/80 rounded-2xl p-5 mb-8 border border-gray-100 dark:border-gray-700 relative group shadow-inner">
-                <p className="text-gray-900 dark:text-white font-medium break-all text-left text-sm leading-relaxed">
-                  {scanResult}
-                </p>
-                <button 
-                  onClick={copyToClipboard}
-                  className="absolute -top-3 -right-3 p-2.5 bg-white dark:bg-gray-700 rounded-full shadow-lg border border-gray-100 dark:border-gray-600 text-gray-500 hover:text-[rgb(var(--theme-600))] opacity-0 group-hover:opacity-100 transition-all hover:scale-110"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                </button>
-              </div>
-
-              <div className="flex gap-4">
-                <button 
-                  onClick={closeModal} 
-                  className="flex-1 px-4 py-3.5 rounded-xl font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                >
-                  Tutup
-                </button>
-                <button 
-                  onClick={closeModal} 
-                  className="flex-1 px-4 py-3.5 rounded-xl font-bold text-white shadow-xl shadow-[rgba(var(--theme-600),0.3)] transition-all bg-gradient-to-r from-[rgb(var(--theme-500))] to-[rgb(var(--theme-700))] hover:from-[rgb(var(--theme-600))] hover:to-[rgb(var(--theme-800))]"
-                >
-                  Scan Lagi
-                </button>
-              </div>
+            <div className="mt-8 flex gap-4 w-full">
+              <button 
+                onClick={closeModal} 
+                className="flex-1 px-4 py-3.5 rounded-xl font-bold text-gray-700 bg-white hover:bg-gray-100 transition-colors shadow-lg"
+              >
+                Tutup
+              </button>
+              <button 
+                onClick={closeModal} 
+                className="flex-1 px-4 py-3.5 rounded-xl font-bold text-white shadow-xl shadow-indigo-500/30 transition-all bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
+              >
+                Scan Lagi
+              </button>
             </div>
           </div>
         </div>
@@ -280,6 +337,15 @@ const ScanQR = ({ onNavigate }) => {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-8px); }
         }
+        @keyframes float3d {
+          0% { transform: translateY(0px) rotateX(15deg) rotateY(-15deg); box-shadow: 15px 15px 30px rgba(0,0,0,0.3); }
+          50% { transform: translateY(-20px) rotateX(25deg) rotateY(5deg); box-shadow: 25px 25px 40px rgba(0,0,0,0.2); }
+          100% { transform: translateY(0px) rotateX(15deg) rotateY(-15deg); box-shadow: 15px 15px 30px rgba(0,0,0,0.3); }
+        }
+        @keyframes shine {
+          0% { background-position: 200% center; }
+          100% { background-position: -200% center; }
+        }
         .animate-modal-pop {
           animation: modalPop 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
@@ -294,6 +360,18 @@ const ScanQR = ({ onNavigate }) => {
         }
         .animate-bounce-soft {
           animation: bounceSoft 2s ease-in-out infinite;
+        }
+        .card-3d {
+          animation: float3d 5s ease-in-out infinite;
+          transform-style: preserve-3d;
+        }
+        .card-shine {
+          background: linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.3) 25%, transparent 30%);
+          background-size: 200% 200%;
+          animation: shine 4s linear infinite;
+        }
+        .perspective-\\[1500px\\] {
+          perspective: 1500px;
         }
         #reader-camera video {
           object-fit: cover !important;

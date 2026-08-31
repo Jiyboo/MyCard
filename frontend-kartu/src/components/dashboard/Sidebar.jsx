@@ -1,8 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-const Sidebar = ({ role, activeMenu, setActiveMenu, onLogout, allowedMenuCodes = [] }) => {
+const Sidebar = ({ role, activeMenu, setActiveMenu, onLogout, allowedMenuCodes = [], isOpen, toggleSidebar }) => {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [openDropdown, setOpenDropdown] = useState('');
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const fetchUnread = async () => {
+      try {
+        const userStr = localStorage.getItem('user');
+        if (!userStr) return;
+        const user = JSON.parse(userStr);
+        const API_URL = import.meta.env.VITE_API_BASE_URL;
+        const res = await fetch(`${API_URL}/api/chats?user_id=${user.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          const total = (data || []).reduce((acc, curr) => acc + (curr.unread_count || 0), 0);
+          setUnreadCount(total);
+        }
+      } catch (error) {}
+    };
+
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleDropdown = (id) => {
     setOpenDropdown(openDropdown === id ? '' : id);
@@ -60,7 +82,6 @@ const Sidebar = ({ role, activeMenu, setActiveMenu, onLogout, allowedMenuCodes =
 
   const allowedMenus = baseMenuList.map(menu => {
     if (role === 'superadmin') return menu;
-
     if (menu.id === 'live_chat') return menu;
 
     if (menu.isDropdown) {
@@ -72,95 +93,108 @@ const Sidebar = ({ role, activeMenu, setActiveMenu, onLogout, allowedMenuCodes =
     }
 
     if (allowedMenuCodes.includes(menu.id)) return menu;
-    
     return null;
   }).filter(Boolean);
 
   return (
     <>
-      <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col h-screen sticky top-0 transition-colors duration-500 shadow-lg z-30">
-        <div className="h-20 flex items-center px-8 border-b border-gray-200 dark:border-gray-800">
-          <span className="font-extrabold text-3xl text-[rgb(var(--theme-600))] tracking-wider">Jiaf</span>
-          <span className="ml-2 mt-1 text-xs font-bold text-gray-400 uppercase tracking-widest">Sistem</span>
-        </div>
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-30 lg:hidden transition-opacity duration-300" 
+          onClick={toggleSidebar}
+        ></div>
+      )}
 
-        <div className="flex-1 overflow-y-auto py-8 px-4 flex flex-col gap-2">
-          <p className="px-4 text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Menu Navigasi</p>
-          
-          {allowedMenus.map((menu) => {
-            if (menu.isDropdown) {
-              const isOpen = openDropdown === menu.id;
-              const hasActiveChild = menu.children.some(child => child.id === activeMenu);
+      <aside className={`fixed lg:sticky top-0 left-0 h-screen z-40 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shadow-lg transition-all duration-300 flex flex-col overflow-hidden ${isOpen ? 'translate-x-0 w-72' : '-translate-x-full w-72 lg:w-0 lg:border-none lg:translate-x-0'}`}>
+        <div className="w-72 h-full flex flex-col">
+          <div className="h-20 flex items-center px-8 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+            <span className="font-extrabold text-3xl text-[rgb(var(--theme-600))] tracking-wider">Jiaf</span>
+            <span className="ml-2 mt-1 text-xs font-bold text-gray-400 uppercase tracking-widest">Sistem</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto py-8 px-4 flex flex-col gap-2">
+            <p className="px-4 text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Menu Navigasi</p>
+            
+            {allowedMenus.map((menu) => {
+              if (menu.isDropdown) {
+                const isMenuOpen = openDropdown === menu.id;
+                const hasActiveChild = menu.children.some(child => child.id === activeMenu);
+
+                return (
+                  <div key={menu.id} className="flex flex-col gap-1">
+                    <button
+                      onClick={() => toggleDropdown(menu.id)}
+                      className={`flex items-center justify-between w-full px-4 py-3.5 rounded-xl font-medium transition-all duration-300 ${
+                        isMenuOpen || hasActiveChild
+                          ? 'bg-gray-100 dark:bg-gray-800 text-[rgb(var(--theme-600))]'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-[rgb(var(--theme-600))]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">{getIcon(menu.id)}</svg>
+                        <span className="text-sm tracking-wide whitespace-nowrap">{menu.title}</span>
+                      </div>
+                      <svg className={`w-4 h-4 flex-shrink-0 transition-transform duration-300 ${isMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ${isMenuOpen ? 'max-h-40 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
+                      {menu.children.map(child => (
+                        <button
+                          key={child.id}
+                          onClick={() => setActiveMenu(child.id)}
+                          className={`flex items-center gap-3 w-full pl-12 pr-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap ${
+                            activeMenu === child.id
+                              ? 'bg-[rgb(var(--theme-600))] text-white shadow-md'
+                              : 'text-gray-500 dark:text-gray-400 hover:text-[rgb(var(--theme-600))] hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                          }`}
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${activeMenu === child.id ? 'bg-white' : 'bg-gray-400'}`}></div>
+                          {child.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
 
               return (
-                <div key={menu.id} className="flex flex-col gap-1">
-                  <button
-                    onClick={() => toggleDropdown(menu.id)}
-                    className={`flex items-center justify-between w-full px-4 py-3.5 rounded-xl font-medium transition-all duration-300 ${
-                      isOpen || hasActiveChild
-                        ? 'bg-gray-100 dark:bg-gray-800 text-[rgb(var(--theme-600))]'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-[rgb(var(--theme-600))]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">{getIcon(menu.id)}</svg>
-                      <span className="text-sm tracking-wide">{menu.title}</span>
-                    </div>
-                    <svg className={`w-4 h-4 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-
-                  <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-40 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-                    {menu.children.map(child => (
-                      <button
-                        key={child.id}
-                        onClick={() => setActiveMenu(child.id)}
-                        className={`flex items-center gap-3 w-full pl-12 pr-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 ${
-                          activeMenu === child.id
-                            ? 'bg-[rgb(var(--theme-600))] text-white shadow-md'
-                            : 'text-gray-500 dark:text-gray-400 hover:text-[rgb(var(--theme-600))] hover:bg-gray-50 dark:hover:bg-gray-800/50'
-                        }`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full ${activeMenu === child.id ? 'bg-white' : 'bg-gray-400'}`}></div>
-                        {child.title}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <button
+                  key={menu.id}
+                  onClick={() => {
+                    setActiveMenu(menu.id);
+                    setOpenDropdown('');
+                  }}
+                  className={`flex items-center gap-4 w-full px-4 py-3.5 rounded-xl font-medium transition-all duration-300 ${
+                    activeMenu === menu.id
+                      ? 'bg-[rgb(var(--theme-600))] text-white shadow-[0_4px_15px_rgba(var(--theme-600),0.3)] scale-[1.02]'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-[rgb(var(--theme-600))] hover:scale-[1.02]'
+                  }`}
+                >
+                  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">{getIcon(menu.id)}</svg>
+                  <span className="text-sm tracking-wide whitespace-nowrap">{menu.title}</span>
+                  {menu.id === 'live_chat' && unreadCount > 0 && (
+                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm flex-shrink-0">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                </button>
               );
-            }
+            })}
+          </div>
 
-            return (
-              <button
-                key={menu.id}
-                onClick={() => {
-                  setActiveMenu(menu.id);
-                  setOpenDropdown('');
-                }}
-                className={`flex items-center gap-4 w-full px-4 py-3.5 rounded-xl font-medium transition-all duration-300 ${
-                  activeMenu === menu.id
-                    ? 'bg-[rgb(var(--theme-600))] text-white shadow-[0_4px_15px_rgba(var(--theme-600),0.3)] scale-[1.02]'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-[rgb(var(--theme-600))] hover:scale-[1.02]'
-                }`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">{getIcon(menu.id)}</svg>
-                <span className="text-sm tracking-wide">{menu.title}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-          <button 
-            onClick={() => setShowLogoutConfirm(true)}
-            className="flex items-center gap-4 w-full px-4 py-3.5 rounded-xl font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-            <span className="text-sm tracking-wide">Keluar</span>
-          </button>
+          <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex-shrink-0">
+            <button 
+              onClick={() => setShowLogoutConfirm(true)}
+              className="flex items-center gap-4 w-full px-4 py-3.5 rounded-xl font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300"
+            >
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span className="text-sm tracking-wide whitespace-nowrap">Keluar</span>
+            </button>
+          </div>
         </div>
       </aside>
 
