@@ -306,8 +306,10 @@ const AuthPage = ({ onNavigate }) => {
         if (loggedInUser.status !== 'aktif' && loggedInUser.status_aktivasi !== 'aktif') {
            throw new Error('Akun Anda belum diaktifkan oleh Admin.');
         }
-        localStorage.setItem('token', data.token || 'dummy-token');
+        localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(loggedInUser));
+        localStorage.setItem('lastActivity', Date.now().toString());
+        localStorage.setItem('loginTime', Date.now().toString());
         
         if (method === 'face_id') {
           setScanPhase('success');

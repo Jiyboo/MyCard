@@ -88,7 +88,7 @@ const CardPreview = ({ isFlipped, onFlip, bgImage, region, nik, namaLengkap, fot
                       <img src={displayQrLogo} alt="Logo QR" className="max-w-full max-h-full object-contain rounded-sm" />
                     </div>
                   </div>
-                  )}
+                )}
               </div>
               <p className="text-[8px] text-gray-500 mt-2 font-bold uppercase tracking-widest text-center">Scan QR Code</p>
             </div>
@@ -121,6 +121,7 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
   }
 
   const isSuperAdmin = activeRole === 'superadmin';
+  const isAdmin = activeRole === 'admin' || activeRole === 'admin_regional';
   const isUser = activeRole === 'user';
   const parseBool = (val) => val === true || val === 1 || val === '1' || val === 'true';
 
@@ -140,7 +141,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
     if (isUser) return { canRead: true, canCreate: false, canUpdate: true, canDelete: false };
 
     let perms = { canRead: false, canCreate: false, canUpdate: false, canDelete: false };
-    
     const isCross = (targetRegion && currentRegion && targetRegion.toLowerCase() !== currentRegion.toLowerCase());
 
     activePerms.forEach(p => {
@@ -166,7 +166,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
         }
       }
     });
-
     return perms;
   };
 
@@ -174,8 +173,7 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
   let globalCanCreate = isSuperAdmin;
   let globalCanUpdate = isSuperAdmin || isUser;
   let globalCanDelete = isSuperAdmin;
-  let tempCanCrossRegion = isSuperAdmin;
-  let computedCrossRegions = [];
+  const canManageTemplate = isSuperAdmin || isAdmin;
 
   if (!isSuperAdmin && !isUser) {
     activePerms.forEach(p => {
@@ -184,16 +182,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
       if (parseBool(p.can_create)) globalCanCreate = true;
       if (parseBool(p.can_update)) globalCanUpdate = true;
       if (parseBool(p.can_delete)) globalCanDelete = true;
-      
-      if (parseBool(p.can_view_cross_region)) {
-        tempCanCrossRegion = true;
-        try {
-          const parsed = typeof p.allowed_cross_regions === 'string' ? JSON.parse(p.allowed_cross_regions) : (p.allowed_cross_regions || []);
-          if (Array.isArray(parsed)) {
-            computedCrossRegions = [...new Set([...computedCrossRegions, ...parsed])];
-          }
-        } catch (e) {}
-      }
     });
   }
 
@@ -223,7 +211,15 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
   const [flippedCards, setFlippedCards] = useState({});
   const [isLoading, setIsLoading] = useState(true);
 
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateColor, setTemplateColor] = useState('#000000');
+  const [templateBrushSize, setTemplateBrushSize] = useState(5);
+  const [baseTemplateImg, setBaseTemplateImg] = useState(null);
+  const [isDrawingTemplate, setIsDrawingTemplate] = useState(false);
+
   const canvasRef = useRef(null);
+  const templateCanvasRef = useRef(null);
 
   useEffect(() => {
     if (!isLoading) {
@@ -276,6 +272,16 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
   const cancelEdit = () => {
     resetForm();
     if (globalCanRead) setActiveTab('list');
+  };
+
+  const loadTemplates = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/cards/templates`);
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data || []);
+      }
+    } catch (e) {}
   };
 
   useEffect(() => {
@@ -349,9 +355,7 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
           }).catch(() => {}));
         }
 
-        promises.push(fetch(`${API_URL}/api/cards/templates`).then(res => res.ok ? res.json() : []).then(data => {
-            if (isMounted) setTemplates(data || []);
-        }).catch(() => {}));
+        promises.push(loadTemplates());
 
         promises.push(fetch(`${API_URL}/api/landing`).then(res => res.ok ? res.json() : {}).then(data => {
             if (isMounted && data.footer && data.footer.qr_logo) {
@@ -667,6 +671,118 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
     setFlippedCards(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const handleUploadTemplateBg = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        setBaseTemplateImg(img);
+        redrawTemplateCanvas(img);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const redrawTemplateCanvas = (img = baseTemplateImg) => {
+    const canvas = templateCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (img) {
+      const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
+      const x = (canvas.width / 2) - (img.width / 2) * scale;
+      const y = (canvas.height / 2) - (img.height / 2) * scale;
+      ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+    }
+  };
+
+  const startTemplateDrawing = (e) => {
+    const canvas = templateCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setIsDrawingTemplate(true);
+  };
+
+  const drawTemplate = (e) => {
+    if (!isDrawingTemplate) return;
+    const canvas = templateCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = templateColor;
+    ctx.lineWidth = templateBrushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  };
+
+  const stopTemplateDrawing = () => {
+    setIsDrawingTemplate(false);
+  };
+
+  const clearTemplateCanvas = () => {
+    redrawTemplateCanvas(baseTemplateImg);
+  };
+
+  const resetTemplateForm = () => {
+    setTemplateName('');
+    setBaseTemplateImg(null);
+    if (templateCanvasRef.current) {
+      const ctx = templateCanvasRef.current.getContext('2d');
+      ctx.clearRect(0, 0, templateCanvasRef.current.width, templateCanvasRef.current.height);
+    }
+    setShowTemplateEditor(false);
+  };
+
+  const submitTemplate = async (e) => {
+    e.preventDefault();
+    if (!templateName) {
+      showAlert('Peringatan', 'Nama template wajib diisi', 'warning');
+      return;
+    }
+    const canvas = templateCanvasRef.current;
+    const dataUrl = canvas.toDataURL('image/png');
+
+    try {
+      const res = await fetch(`${API_URL}/api/cards/templates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nama_template: templateName, file_background: dataUrl })
+      });
+      if (res.ok) {
+        showAlert('Berhasil', 'Template berhasil disimpan', 'success');
+        resetTemplateForm();
+        loadTemplates();
+      } else {
+        showAlert('Gagal', 'Terjadi kesalahan saat menyimpan template', 'error');
+      }
+    } catch (err) {
+      showAlert('Error', 'Gagal menghubungi server', 'error');
+    }
+  };
+
+  const handleDeleteTemplate = (id) => {
+    triggerConfirm('Hapus Template', 'Yakin ingin menghapus template ini?', 'danger', async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/cards/templates/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+          setTemplates(prev => prev.filter(t => t.id !== id));
+          showAlert('Berhasil', 'Template telah dihapus.', 'success');
+        }
+      } catch (error) {}
+    });
+  };
+
   if (!activeRole || activeRole === 'undefined') {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -686,26 +802,29 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
         </div>
       </div>
 
-      {(globalCanRead || globalCanCreate) && (
-        <div className="flex border-b border-gray-200 dark:border-gray-800 mb-8">
-          {globalCanRead && (
-            <button onClick={() => { resetForm(); setActiveTab('list'); }} className={`px-6 py-3 font-bold text-sm border-b-2 transition-colors ${activeTab === 'list' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))]' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
-              {activeRole === 'user' ? 'Kartu Saya' : 'Daftar Kartu'}
-            </button>
-          )}
-          {globalCanCreate && (
-            <button onClick={() => { resetForm(); setActiveTab('create'); }} className={`px-6 py-3 font-bold text-sm border-b-2 transition-colors ${activeTab === 'create' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))]' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
-              Buat Kartu Baru
-            </button>
-          )}
-        </div>
-      )}
+      <div className="flex border-b border-gray-200 dark:border-gray-800 mb-8 overflow-x-auto">
+        {globalCanRead && (
+          <button onClick={() => { resetForm(); setActiveTab('list'); setShowTemplateEditor(false); }} className={`px-6 py-3 font-bold text-sm whitespace-nowrap border-b-2 transition-colors ${activeTab === 'list' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))]' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
+            {activeRole === 'user' ? 'Kartu Saya' : 'Daftar Kartu'}
+          </button>
+        )}
+        {globalCanCreate && (
+          <button onClick={() => { resetForm(); setActiveTab('create'); setShowTemplateEditor(false); }} className={`px-6 py-3 font-bold text-sm whitespace-nowrap border-b-2 transition-colors ${activeTab === 'create' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))]' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
+            Buat Kartu Baru
+          </button>
+        )}
+        {canManageTemplate && (
+          <button onClick={() => { resetForm(); setActiveTab('template'); }} className={`px-6 py-3 font-bold text-sm whitespace-nowrap border-b-2 transition-colors ${activeTab === 'template' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))]' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
+            Kelola Template
+          </button>
+        )}
+      </div>
 
       {isLoading ? (
         <div className="flex items-center justify-center min-h-[300px]">
           <div className="w-12 h-12 border-4 border-gray-200 border-t-[rgb(var(--theme-600))] rounded-full animate-spin"></div>
         </div>
-      ) : (!globalCanRead && !globalCanCreate && !globalCanUpdate && !globalCanDelete) ? (
+      ) : (!globalCanRead && !globalCanCreate && !globalCanUpdate && !globalCanDelete && !canManageTemplate) ? (
         <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm p-8 flex flex-col items-center justify-center min-h-[400px]">
           <svg className="w-16 h-16 text-red-300 dark:text-red-900/50 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
           <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Akses Ditolak</h3>
@@ -932,6 +1051,95 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
             <p className="text-gray-400 dark:text-gray-500 text-xs mt-8 text-center max-w-xs font-medium">Render 3D Aktif. Klik area kartu untuk membalik visualisasi.</p>
           </div>
         </div>
+      ) : activeTab === 'template' && canManageTemplate ? (
+        showTemplateEditor ? (
+          <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm p-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Canvas Editor Template</h2>
+              <button onClick={resetTemplateForm} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-bold">Kembali</button>
+            </div>
+            
+            <div className="flex flex-col xl:flex-row gap-8">
+              <div className="w-full xl:w-1/3 space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nama Template</label>
+                  <input type="text" value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Contoh: Template Premium" className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-[rgb(var(--theme-500))] outline-none text-gray-900 dark:text-white" />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Upload Latar Belakang</label>
+                  <input type="file" accept="image/*" onChange={handleUploadTemplateBg} className="w-full px-4 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 outline-none text-gray-900 dark:text-white" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Warna Kuas</label>
+                    <input type="color" value={templateColor} onChange={(e) => setTemplateColor(e.target.value)} className="w-full h-10 rounded cursor-pointer" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ukuran Kuas</label>
+                    <input type="range" min="1" max="20" value={templateBrushSize} onChange={(e) => setTemplateBrushSize(Number(e.target.value))} className="w-full mt-2" />
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button onClick={clearTemplateCanvas} className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">Bersihkan Coretan</button>
+                </div>
+                
+                <button onClick={submitTemplate} className="w-full bg-[rgb(var(--theme-600))] text-white font-bold py-3.5 rounded-xl shadow-lg shadow-[rgba(var(--theme-600),0.3)] hover:bg-[rgb(var(--theme-700))] transition-all active:scale-[0.98] mt-4">
+                  Simpan Template
+                </button>
+              </div>
+
+              <div className="w-full xl:w-2/3 flex flex-col items-center">
+                <p className="text-sm text-gray-500 mb-3 font-medium">Area ini mensimulasikan ukuran asli kartu (800x504). Anda dapat mencoret-coret atau mengunggah gambar.</p>
+                <div className="w-full max-w-[800px] aspect-[1.586/1] border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-[1.5rem] overflow-hidden bg-gray-50 dark:bg-gray-800 relative cursor-crosshair touch-none shadow-inner">
+                  <canvas
+                    ref={templateCanvasRef}
+                    width={800}
+                    height={504}
+                    onMouseDown={startTemplateDrawing}
+                    onMouseMove={drawTemplate}
+                    onMouseUp={stopTemplateDrawing}
+                    onMouseOut={stopTemplateDrawing}
+                    className="w-full h-full block"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Daftar Template</h2>
+              <button onClick={() => setShowTemplateEditor(true)} className="px-6 py-2.5 bg-[rgb(var(--theme-600))] hover:bg-[rgb(var(--theme-700))] text-white font-bold rounded-xl shadow-md transition-colors">
+                Buat Template Baru
+              </button>
+            </div>
+            
+            {templates.length === 0 ? (
+              <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm p-8 flex flex-col items-center justify-center min-h-[300px]">
+                <p className="text-gray-500 dark:text-gray-400 text-center">Belum ada template yang tersedia.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {templates.map(t => (
+                  <div key={t.id} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all">
+                    <div className="aspect-[1.586/1] w-full bg-gray-100 overflow-hidden relative">
+                      <img src={getImageUrl(t.file_background)} alt={t.nama_template} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="p-4 flex justify-between items-center">
+                      <h4 className="font-bold text-gray-900 dark:text-white truncate pr-2">{t.nama_template}</h4>
+                      <button onClick={() => handleDeleteTemplate(t.id)} className="text-red-500 hover:text-red-700 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg transition-colors">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
       ) : null}
 
       {confirmDialog.isOpen && (

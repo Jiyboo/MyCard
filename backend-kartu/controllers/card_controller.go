@@ -79,7 +79,6 @@ func (ctrl *CardController) GetCards(c *gin.Context) {
 			}
 		}
 
-		// Menangani regionID sebagai integer agar aman dari panic error SQL
 		var rID uint
 		hasRID := false
 		if parsedID, err := strconv.ParseUint(regionID, 10, 32); err == nil {
@@ -213,6 +212,15 @@ func (ctrl *CardController) CreateTemplate(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, template)
+}
+
+func (ctrl *CardController) DeleteTemplate(c *gin.Context) {
+	id := c.Param("id")
+	if err := ctrl.DB.Delete(&models.CardTemplate{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghapus template"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Template berhasil dihapus"})
 }
 
 type CreateCardInput struct {

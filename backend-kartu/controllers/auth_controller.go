@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -140,7 +142,18 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 		return
 	}
 
-	token := "token-jwt-dummy-" + user.Username
+	tokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"role":    user.Role,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	})
+
+	token, err := tokenObj.SignedString([]byte("RAHASIA_JIAF_SUPER_AMAN"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat token"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Login berhasil",
 		"token":   token,

@@ -69,6 +69,7 @@ func main() {
 		api.PUT("/cards/:id", cardController.UpdateCard)
 		api.GET("/cards/templates", cardController.GetTemplates)
 		api.POST("/cards/templates", cardController.CreateTemplate)
+		api.DELETE("/cards/templates/:id", cardController.DeleteTemplate)
 		api.DELETE("/cards/:id", cardController.DeleteCard)
 		api.PATCH("/cards/:id/status", cardController.ToggleCardStatus)
 
