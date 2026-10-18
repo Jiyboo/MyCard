@@ -49,7 +49,8 @@ type LandingFooter struct {
 	Phone         string    `gorm:"column:phone" json:"phone"`
 	Address       string    `gorm:"column:address" json:"address"`
 	Copyright     string    `gorm:"column:copyright" json:"copyright"`
-	WebsiteLink  string    `gorm:"column:Website_link" json:"Website_link"`
+	WebsiteLink   string    `gorm:"column:Website_link" json:"Website_link"`
 	InstagramLink string    `gorm:"column:instagram_link" json:"instagram_link"`
+	QrLogo        string    `gorm:"column:qr_logo;type:longtext" json:"qr_logo"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

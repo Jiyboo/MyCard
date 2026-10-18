@@ -8,7 +8,7 @@ const getImageUrl = (path) => {
   return `${API_URL}${path.startsWith('/') ? '' : '/'}${path}`;
 };
 
-const CardPreview = ({ isFlipped, onFlip, bgImage, region, nik, namaLengkap, fotoProfil, signature }) => {
+const CardPreview = ({ isFlipped, onFlip, bgImage, region, nik, namaLengkap, fotoProfil, signature, qrLogo }) => {
   const displayBg = getImageUrl(bgImage) || 'https://images.unsplash.com/photo-1557683316-973673baf926?w=800&q=80';
   const displayNik = nik ? nik.replace('JIAF-', '').replace(/(.{4})/g, '$1 ').trim() : '0000 0000 0000 0000';
   const displayNama = namaLengkap || 'NAMA LENGKAP';
@@ -16,6 +16,7 @@ const CardPreview = ({ isFlipped, onFlip, bgImage, region, nik, namaLengkap, fot
   const displayQrData = `JIAF-${nik ? nik.replace('JIAF-', '') : 'EMPTY'}`;
   const displayTtd = getImageUrl(signature);
   const displayProfile = getImageUrl(fotoProfil);
+  const displayQrLogo = getImageUrl(qrLogo);
 
   return (
     <div className="relative w-full max-w-[450px] aspect-[1.586/1] perspective-[1500px] group cursor-pointer mx-auto" onClick={onFlip}>
@@ -79,8 +80,15 @@ const CardPreview = ({ isFlipped, onFlip, bgImage, region, nik, namaLengkap, fot
             </div>
 
             <div className="w-28 flex flex-col items-center justify-center shrink-0">
-              <div className="bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
-                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${displayQrData}&margin=0`} alt="QR" className="w-full aspect-square" />
+              <div className="relative bg-white p-1.5 rounded-xl shadow-sm border border-gray-200 flex items-center justify-center overflow-hidden">
+                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${displayQrData}&margin=0&ecc=H`} alt="QR" className="w-full aspect-square" />
+                {displayQrLogo && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="bg-white p-1 rounded border border-gray-200 shadow-sm flex items-center justify-center w-8 h-8">
+                      <img src={displayQrLogo} alt="Logo QR" className="max-w-full max-h-full object-contain rounded-sm" />
+                    </div>
+                  </div>
+                  )}
               </div>
               <p className="text-[8px] text-gray-500 mt-2 font-bold uppercase tracking-widest text-center">Scan QR Code</p>
             </div>
@@ -94,6 +102,7 @@ const CardPreview = ({ isFlipped, onFlip, bgImage, region, nik, namaLengkap, fot
 
 const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
   const [fetchedMenuAccess, setFetchedMenuAccess] = useState(null);
+  const [globalQrLogo, setGlobalQrLogo] = useState('');
 
   let activeRole = role;
   let currentRegion = adminRegion;
@@ -126,14 +135,12 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
     activePerms = fetchedMenuAccess;
   }
 
-  // LOGIKA BARU: Mengecek hak akses SECARA SPESIFIK per region (untuk CRUD sesuai centang)
   const checkCardPerms = (targetRegion) => {
     if (isSuperAdmin) return { canRead: true, canCreate: true, canUpdate: true, canDelete: true };
     if (isUser) return { canRead: true, canCreate: false, canUpdate: true, canDelete: false };
 
     let perms = { canRead: false, canCreate: false, canUpdate: false, canDelete: false };
     
-    // Apakah region target ini berbeda dari region admin? (Lintas wilayah)
     const isCross = (targetRegion && currentRegion && targetRegion.toLowerCase() !== currentRegion.toLowerCase());
 
     activePerms.forEach(p => {
@@ -144,7 +151,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
       } catch(e) {}
 
       if (!isCross) {
-        // Aturan untuk wilayah SENDIRI (isCrossRow = false ATAU "Semua" diizinkan)
         if (!isCrossRow || allowed.includes('Semua')) {
           if (parseBool(p.can_read)) perms.canRead = true;
           if (parseBool(p.can_create)) perms.canCreate = true;
@@ -152,7 +158,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
           if (parseBool(p.can_delete)) perms.canDelete = true;
         }
       } else {
-        // Aturan untuk LINTAS WILAYAH (isCrossRow = true DAN region target dicentang)
         if (isCrossRow && (allowed.includes('Semua') || allowed.includes(targetRegion))) {
           if (parseBool(p.can_read)) perms.canRead = true;
           if (parseBool(p.can_create)) perms.canCreate = true;
@@ -165,7 +170,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
     return perms;
   };
 
-  // Flag Utama untuk UI
   let globalCanRead = isSuperAdmin || isUser;
   let globalCanCreate = isSuperAdmin;
   let globalCanUpdate = isSuperAdmin || isUser;
@@ -290,7 +294,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
           }
         }
 
-        // Jika hak akses dari props null (refresh page), fetch sendiri ke database
         let currentPerms = [...activePerms];
         if (currentPerms.length === 0 && activeRole === 'admin_regional') {
           try {
@@ -305,7 +308,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
           } catch (e) {}
         }
 
-        // Kalkulasi ulang Cross Region dari permission yang didapat
         let dynCrossRegion = isSuperAdmin;
         let dynComputedCross = [];
         if (!isSuperAdmin && !isUser) {
@@ -349,6 +351,12 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
 
         promises.push(fetch(`${API_URL}/api/cards/templates`).then(res => res.ok ? res.json() : []).then(data => {
             if (isMounted) setTemplates(data || []);
+        }).catch(() => {}));
+
+        promises.push(fetch(`${API_URL}/api/landing`).then(res => res.ok ? res.json() : {}).then(data => {
+            if (isMounted && data.footer && data.footer.qr_logo) {
+                setGlobalQrLogo(data.footer.qr_logo);
+            }
         }).catch(() => {}));
 
         await Promise.all(promises);
@@ -403,7 +411,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
         showBackgroundEdit = true;
         showSignatureEdit = true;
       } else {
-        // Cek permission per kartu (Apakah kartu ini boleh diedit oleh admin?)
         const cardPerms = checkCardPerms(formData.region);
         if (cardPerms.canUpdate) {
           showBackgroundEdit = true;
@@ -668,7 +675,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
     );
   }
 
-  // Hanya izinkan form buat kartu untuk pengguna dari region yang memang punya izin Create
   const availableUsersForCreation = usersList.filter(u => checkCardPerms(u.region || 'Nasional').canCreate);
 
   return (
@@ -718,6 +724,7 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
               namaLengkap={cards[0].nama_lengkap} 
               fotoProfil={cards[0].foto_profil} 
               signature={cards[0].file_ttd} 
+              qrLogo={globalQrLogo}
             />
             <p className="text-gray-400 dark:text-gray-500 text-xs mt-8 text-center max-w-xs font-medium">Render 3D Aktif. Klik area kartu untuk membalik visualisasi.</p>
             {globalCanUpdate && (
@@ -738,7 +745,6 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-8">
             {cards.map(card => {
-              // Cek hak akses SECARA SPESIFIK untuk wilayah kartu ini
               const cardPerms = checkCardPerms(card.region);
 
               return (
@@ -775,6 +781,7 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
                     namaLengkap={card.nama_lengkap} 
                     fotoProfil={card.foto_profil} 
                     signature={card.file_ttd} 
+                    qrLogo={globalQrLogo}
                   />
 
                   <p className="text-xs text-gray-400 font-medium w-full text-center mt-2">
@@ -919,6 +926,7 @@ const BuatKartu = ({ role, adminRegion, permissions = {} }) => {
               namaLengkap={formData.nama_lengkap} 
               fotoProfil={formData.foto_profil} 
               signature={signature} 
+              qrLogo={globalQrLogo}
             />
 
             <p className="text-gray-400 dark:text-gray-500 text-xs mt-8 text-center max-w-xs font-medium">Render 3D Aktif. Klik area kartu untuk membalik visualisasi.</p>

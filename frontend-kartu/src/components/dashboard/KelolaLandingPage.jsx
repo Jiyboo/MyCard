@@ -9,7 +9,7 @@ const KelolaLandingPage = ({ role }) => {
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   
   const [heroData, setHeroData] = useState({ id: '', title: '', description: '', image_url: '' });
-  const [footerData, setFooterData] = useState({ id: '', about_text: '', email: '', phone: '', address: '', copyright: '', Website_link: '', instagram_link: '' });
+  const [footerData, setFooterData] = useState({ id: '', about_text: '', email: '', phone: '', address: '', copyright: '', Website_link: '', instagram_link: '', qr_logo: '' });
   const [featuresData, setFeaturesData] = useState([]);
   const [stepSectionsData, setStepSectionsData] = useState([]);
 
@@ -46,7 +46,8 @@ const KelolaLandingPage = ({ role }) => {
           address: data.footer.address || '',
           copyright: data.footer.copyright || '',
           Website_link: data.footer.Website_link || '',
-          instagram_link: data.footer.instagram_link || ''
+          instagram_link: data.footer.instagram_link || '',
+          qr_logo: data.footer.qr_logo || ''
         });
       }
       
@@ -55,7 +56,6 @@ const KelolaLandingPage = ({ role }) => {
       
       setIsLoading(false);
     } catch (error) {
-      console.error(error);
       setIsLoading(false);
     }
   };
@@ -91,6 +91,19 @@ const KelolaLandingPage = ({ role }) => {
     e.target.value = '';
   };
 
+  const handleQrLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showAlert('Format Tidak Sesuai', 'File yang Anda pilih bukan gambar.', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => setFooterData(prev => ({ ...prev, qr_logo: reader.result }));
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   const handleSaveHero = async (e) => {
     e.preventDefault();
     try {
@@ -119,10 +132,10 @@ const KelolaLandingPage = ({ role }) => {
         body: JSON.stringify(footerData)
       });
       if (response.ok) {
-        showAlert('Pembaruan Disimpan', 'Footer berhasil diperbarui.', 'success');
+        showAlert('Pembaruan Disimpan', 'Pengaturan berhasil diperbarui.', 'success');
         fetchLandingData();
       } else {
-        showAlert('Gagal Menyimpan', 'Terjadi kesalahan saat menyimpan Footer.', 'error');
+        showAlert('Gagal Menyimpan', 'Terjadi kesalahan saat menyimpan pengaturan.', 'error');
       }
     } catch (error) {
       showAlert('Koneksi Error', 'Gagal terhubung ke server.', 'error');
@@ -307,6 +320,7 @@ const KelolaLandingPage = ({ role }) => {
           <button onClick={() => setActiveTab('features')} className={`px-8 py-5 text-sm font-bold whitespace-nowrap transition-all border-b-2 ${activeTab === 'features' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))] bg-gray-50/50 dark:bg-gray-800/20' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>Fitur Utama</button>
           <button onClick={() => setActiveTab('steps')} className={`px-8 py-5 text-sm font-bold whitespace-nowrap transition-all border-b-2 ${activeTab === 'steps' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))] bg-gray-50/50 dark:bg-gray-800/20' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>Panduan Pengguna</button>
           <button onClick={() => setActiveTab('footer')} className={`px-8 py-5 text-sm font-bold whitespace-nowrap transition-all border-b-2 ${activeTab === 'footer' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))] bg-gray-50/50 dark:bg-gray-800/20' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>Informasi Footer</button>
+          <button onClick={() => setActiveTab('qr_settings')} className={`px-8 py-5 text-sm font-bold whitespace-nowrap transition-all border-b-2 ${activeTab === 'qr_settings' ? 'border-[rgb(var(--theme-600))] text-[rgb(var(--theme-600))] bg-gray-50/50 dark:bg-gray-800/20' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>Pengaturan QR</button>
         </div>
 
         <div className="p-8">
@@ -411,6 +425,35 @@ const KelolaLandingPage = ({ role }) => {
               </div>
               <div className="pt-4 flex justify-end">
                 <button type="submit" className="px-8 py-3 rounded-xl font-bold bg-[rgb(var(--theme-600))] hover:bg-[rgb(var(--theme-700))] text-white shadow-lg transition-all">Simpan Footer</button>
+              </div>
+            </form>
+          )}
+
+          {activeTab === 'qr_settings' && (
+            <form onSubmit={handleSaveFooter} className="space-y-6 animate-fade-in-up">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-700 dark:text-gray-300">Logo Tengah QR Code</label>
+                <div className="flex flex-col md:flex-row gap-4">
+                  <div className="flex-1 space-y-4">
+                    <div className="relative group">
+                      <input type="file" accept="image/*" onChange={handleQrLogoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                      <div className="flex items-center justify-center gap-3 px-5 py-4 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/50 dark:hover:bg-gray-800 transition-all text-gray-600 dark:text-gray-400 font-medium">
+                        <span>Pilih File Logo</span>
+                      </div>
+                    </div>
+                  </div>
+                  {footerData.qr_logo && (
+                    <div className="w-full md:w-32 h-32 shrink-0 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden relative group bg-gray-100 dark:bg-gray-900">
+                      <img src={footerData.qr_logo} alt="Preview QR Logo" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <button type="button" onClick={() => setFooterData({...footerData, qr_logo: ''})} className="bg-red-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-red-600 transition-colors shadow-lg">Hapus</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="pt-4 flex justify-end">
+                <button type="submit" className="px-8 py-3 rounded-xl font-bold bg-[rgb(var(--theme-600))] hover:bg-[rgb(var(--theme-700))] text-white shadow-lg transition-all">Simpan Pengaturan QR</button>
               </div>
             </form>
           )}

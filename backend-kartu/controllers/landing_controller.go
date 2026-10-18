@@ -85,6 +85,7 @@ func (ctrl *LandingController) UpdateFooter(c *gin.Context) {
 	footer.Copyright = input.Copyright
 	footer.WebsiteLink = input.WebsiteLink
 	footer.InstagramLink = input.InstagramLink
+	footer.QrLogo = input.QrLogo
 
 	if err := ctrl.DB.Save(&footer).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
